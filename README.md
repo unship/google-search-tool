@@ -111,11 +111,6 @@ MCP 通过 **stdio** 通信，只需配置「用哪个命令启动」即可。
 make build
 # 可执行文件：当前目录的 ./google-search-tool，或 make install 后的 $(go env GOPATH)/bin/google-search-tool
 ```
-
-记下**绝对路径**，例如：
-- 项目内：`/Users/你/go/src/github.com/ai/google-search-tool/google-search-tool`
-- 或 PATH 里：`/Users/你/go/bin/google-search-tool`
-
 ---
 
 ### 2. Cursor
@@ -130,7 +125,7 @@ make build
 {
   "mcpServers": {
     "google-search-tool": {
-      "command": "/Users/你/go/bin/google-search-tool",
+      "command": "google-search-tool",
       "args": ["mcp"]
     }
   }
@@ -141,7 +136,7 @@ make build
 
 ```json
 "google-search-tool": {
-  "command": "/Users/你/go/src/github.com/ai/google-search-tool/google-search-tool",
+  "command": "google-search-tool",
   "args": ["mcp"]
 }
 ```
@@ -163,7 +158,7 @@ make build
     "ddg-search": { ... },
     "google-search-tool": {
       "type": "local",
-      "command": ["/Users/你/go/bin/google-search-tool", "mcp"],
+      "command": ["google-search-tool", "mcp"],
       "enabled": true
     }
   }
