@@ -25,7 +25,7 @@ CGO_ENABLED=0 go build -o google-search-tool .
 ./google-search-tool search -q "python tutorial" -n 5
 ./google-search-tool search "python tutorial" -n 5
 ./google-search-tool search -q "python" --cdp 9222
-./google-search-tool search -q "python" --cdp 0 --llm
+./google-search-tool search -q "python" --cdp 0
 
 # 2. 抓取 URL 正文（输出 Markdown，并清理广告/脚本/导航等）
 ./google-search-tool fetch https://example.com
@@ -40,22 +40,23 @@ CGO_ENABLED=0 go build -o google-search-tool .
 - `-q` / `--query`：搜索关键词（必填，也可用位置参数）
 - `-n` / `--num`：返回前 N 条，默认 100（不足时自动翻页）
 - `--cdp`：CDP 端口，默认 9222；传 `0` 则自动起新浏览器
-- `--llm`：输出为 LLM 友好格式
 
 **mcp 参数：**
 
 - `--cdp`：内部调用 search 时使用的 CDP 端口（默认 9222）
 
-## 输出示例
+## 输出示例（默认 LLM 友好格式）
 
 ```
-Python Tutorial - W3Schools
-https://www.w3schools.com/python/
----
-Official Python Tutorial
-https://docs.python.org/3/tutorial/
----
-...
+Found 2 search results:
+
+1. Python Tutorial - W3Schools
+   URL: https://www.w3schools.com/python/
+   Snippet: ...
+
+2. Official Python Tutorial
+   URL: https://docs.python.org/3/tutorial/
+   Snippet: ...
 ```
 
 ## 说明
@@ -70,7 +71,7 @@ https://docs.python.org/3/tutorial/
 
 - **Removes ads and irrelevant content**：过滤广告/赞助类标题及已知无关域名（如 doubleclick、googleadservices、google.com/sorry 等）。
 - **Cleans up redirect URLs**：清洗 Google 重定向链接（`google.com/url?url=...`）为最终目标 URL。
-- **Formats for LLM**：使用 `-llm` 时输出为「Found N results」+ 编号 + Title/URL 的格式，便于大模型直接消费。
+- **Formats for LLM**：输出为「Found N results」+ 编号 + Title/URL/Snippet，便于大模型直接消费。
 - **Truncates long content**：标题超过 300 字符会自动截断并加 `...`。
 
 ### Error handling

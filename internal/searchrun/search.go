@@ -15,8 +15,9 @@ import (
 
 // SearchItem 单条搜索结果
 type SearchItem struct {
-	Title string `json:"title"`
-	URL   string `json:"url"`
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Snippet string `json:"snippet,omitempty"` // 链接的简要描述（Google 结果页 snippet）
 }
 
 // SearchOptions 搜索选项
@@ -35,6 +36,7 @@ const (
 	PageLoadDelay      = 2 * time.Second
 	MinRequestInterval = 500 * time.Millisecond // 默认最小请求间隔
 	MaxPages           = 10                     // 最大翻页数，防止无限循环
+	cdpHint            = "；若使用 CDP 模式，请检查 Chrome 调试端口是否连接成功"
 )
 
 // Logger 可选日志回调，nil 则不输出
@@ -240,8 +242,9 @@ func parseSearchResults(data []byte) ([]SearchItem, error) {
 		for _, m := range rawItems {
 			title, _ := m["title"].(string)
 			u, _ := m["url"].(string)
+			snippet, _ := m["snippet"].(string)
 			if title != "" || u != "" {
-				items = append(items, SearchItem{Title: title, URL: u})
+				items = append(items, SearchItem{Title: title, URL: u, Snippet: snippet})
 			}
 		}
 		return items, nil
@@ -292,23 +295,29 @@ func RunWithOptions(ctx context.Context, extractJS, keyword string, n, cdp int, 
 	// 创建限流器
 	limiter := NewRateLimiter(opts.RequestDelay)
 
-	var browserArgs []string
+	// 每次调用使用独立 session，避免多进程/多并发共用一个 tab 互相覆盖（CDP 与自启浏览器均一 session 一 tab）
 	var session string
+	var browserArgs []string
+	session = fmt.Sprintf("google-search-%d-%d", os.Getpid(), time.Now().UnixNano())
+	browserArgs = []string{"--session", session}
 	if cdp != 0 {
-		browserArgs = []string{"--cdp", strconv.Itoa(cdp)}
+		browserArgs = append(browserArgs, "--cdp", strconv.Itoa(cdp))
 		if infoLog != nil {
 			infoLog("搜索: %s (取前 %d 条，CDP %d)", keyword, n, cdp)
 		}
 	} else {
-		session = fmt.Sprintf("google-search-%d-%d", os.Getpid(), time.Now().Unix())
-		browserArgs = []string{"--session", session}
 		if infoLog != nil {
 			infoLog("搜索: %s (取前 %d 条)", keyword, n)
 		}
 	}
 	defer func() {
 		if session != "" {
-			_ = exec.Command("agent-browser", "--session", session, "close").Run()
+			closeArgs := []string{"--session", session}
+			if cdp != 0 {
+				closeArgs = append(closeArgs, "--cdp", strconv.Itoa(cdp))
+			}
+			closeArgs = append(closeArgs, "close")
+			_ = exec.Command("agent-browser", closeArgs...).Run()
 		}
 	}()
 
@@ -366,7 +375,7 @@ func RunWithOptions(ctx context.Context, extractJS, keyword string, n, cdp int, 
 				}
 				break
 			}
-			return nil, fmt.Errorf("打开页面失败: %w", openErr)
+			return nil, fmt.Errorf("打开页面失败: %w%s", openErr, cdpHint)
 		}
 
 		time.Sleep(PageLoadDelay)
@@ -399,7 +408,7 @@ func RunWithOptions(ctx context.Context, extractJS, keyword string, n, cdp int, 
 				}
 				break
 			}
-			return nil, fmt.Errorf("执行提取失败: %w", evalErr)
+			return nil, fmt.Errorf("执行提取失败: %w%s", evalErr, cdpHint)
 		}
 
 		// 解析响应
@@ -411,7 +420,7 @@ func RunWithOptions(ctx context.Context, extractJS, keyword string, n, cdp int, 
 				}
 				break
 			}
-			return nil, fmt.Errorf("解析 agent-browser 输出: %w", err)
+			return nil, fmt.Errorf("解析 agent-browser 输出: %w%s", err, cdpHint)
 		}
 
 		if !wrap.Success {
@@ -425,7 +434,7 @@ func RunWithOptions(ctx context.Context, extractJS, keyword string, n, cdp int, 
 				}
 				break
 			}
-			return nil, fmt.Errorf("agent-browser: %s", msg)
+			return nil, fmt.Errorf("agent-browser: %s%s", msg, cdpHint)
 		}
 
 		if wrap.Data == nil || wrap.Data.Result == nil {
@@ -435,7 +444,7 @@ func RunWithOptions(ctx context.Context, extractJS, keyword string, n, cdp int, 
 				}
 				break
 			}
-			return nil, fmt.Errorf("未获取到搜索结果（可能遇到验证页或页面结构变化）")
+			return nil, fmt.Errorf("未获取到搜索结果（可能遇到验证页或页面结构变化）%s", cdpHint)
 		}
 
 		// 使用改进的解析函数
@@ -444,7 +453,7 @@ func RunWithOptions(ctx context.Context, extractJS, keyword string, n, cdp int, 
 			if len(allItems) > 0 && infoLog != nil {
 				infoLog("解析结果失败: %v，跳过本页继续", err)
 			} else if len(allItems) == 0 {
-				return nil, err
+				return nil, fmt.Errorf("%w%s", err, cdpHint)
 			}
 			pageItems = nil
 		}
@@ -463,9 +472,11 @@ func RunWithOptions(ctx context.Context, extractJS, keyword string, n, cdp int, 
 				continue
 			}
 			seenURL[u] = true
+			snippet := truncateTitle(it.Snippet, 500)
 			allItems = append(allItems, SearchItem{
-				Title: truncateTitle(it.Title, MaxTitleLen),
-				URL:   u,
+				Title:   truncateTitle(it.Title, MaxTitleLen),
+				URL:     u,
+				Snippet: snippet,
 			})
 			newItems++
 		}
@@ -488,7 +499,7 @@ func RunWithOptions(ctx context.Context, extractJS, keyword string, n, cdp int, 
 	}
 
 	if len(allItems) == 0 {
-		return nil, fmt.Errorf("未解析到任何搜索结果")
+		return nil, fmt.Errorf("未解析到任何搜索结果%s", cdpHint)
 	}
 
 	limit := n
@@ -503,12 +514,16 @@ func Run(ctx context.Context, extractJS, keyword string, n, cdp int, infoLog, er
 	return RunWithOptions(ctx, extractJS, keyword, n, cdp, nil, infoLog, errLog)
 }
 
-// FormatLLM 格式化为 LLM 友好字符串
+// FormatLLM 格式化为 LLM 友好字符串（含每条链接的简要描述）
 func FormatLLM(items []SearchItem) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Found %d search results:\n\n", len(items)))
 	for i, it := range items {
-		b.WriteString(fmt.Sprintf("%d. %s\n   URL: %s\n\n", i+1, it.Title, it.URL))
+		b.WriteString(fmt.Sprintf("%d. %s\n   URL: %s\n", i+1, it.Title, it.URL))
+		if it.Snippet != "" {
+			b.WriteString(fmt.Sprintf("   Snippet: %s\n", it.Snippet))
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }

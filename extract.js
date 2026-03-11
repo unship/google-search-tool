@@ -120,13 +120,41 @@
       }
     }
     
+    // 获取链接的简要描述（snippet）：从当前结果块内查找描述文字
+    var snippet = '';
+    var block = a.closest('div[data-hveid], div.g, div[data-sokoban-container]') || a.closest('div');
+    if (block) {
+      var snippetSelectors = ['div.VwiC3b', 'div.IsZvec', 'span.aCOpRe', 'div[data-sncf]'];
+      for (var s = 0; s < snippetSelectors.length; s++) {
+        var el = block.querySelector(snippetSelectors[s]);
+        if (el && el.innerText) {
+          snippet = el.innerText.trim().slice(0, 500);
+          break;
+        }
+      }
+      // 若无匹配选择器：取同块内非链接、非标题的文本块（首段）
+      if (!snippet && block) {
+        var divs = block.querySelectorAll('div');
+        for (var d = 0; d < divs.length; d++) {
+          var dx = divs[d];
+          if (dx.contains(a)) continue;
+          var txt = (dx.innerText || '').trim();
+          if (txt.length > 20 && txt.length < 800 && !/^https?:\/\//.test(txt)) {
+            snippet = txt.slice(0, 500);
+            break;
+          }
+        }
+      }
+    }
+
     // 去重
     if (seen[h]) return;
     seen[h] = true;
     
     out.push({
       title: t,
-      url: h
+      url: h,
+      snippet: snippet || ''
     });
     count++;
   });
